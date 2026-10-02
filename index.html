@@ -283,6 +283,11 @@ tr.res td{color:var(--muted)}
     <div class="kpis" id="kpis"></div>
   </div>
 
+  <div class="sec" id="sec-reais" hidden>
+    <header><h2>Nós reais</h2><span class="hint">Última leitura feita pelo celular, direto do ESP32 — medição, não simulação</span></header>
+    <div class="nodes" id="nodes-reais"></div>
+  </div>
+
   <div class="sec">
     <header><h2>Nós do apiário</h2><span class="hint">Clique em um nó para ver o histórico</span></header>
     <div class="nodes" id="nodes"></div>
@@ -340,6 +345,26 @@ tr.res td{color:var(--muted)}
       </form>
     </div>
     <div class="tw" style="margin-top:12px" id="tb-insp"></div>
+  </div>
+
+  <div class="sec" id="sec-nos" hidden>
+    <header><h2>Nós BeeMeter próximos</h2>
+      <span class="hint">Aproxime-se das colmeias: o celular lista os nós ao alcance e lê vários em sequência</span></header>
+    <div class="card">
+      <div class="form">
+        <div class="fld"><label for="n-senha">Senha do Wi-Fi dos nós</label>
+          <input id="n-senha" type="password" autocomplete="off" maxlength="63" placeholder="a mesma gravada nos ESP32">
+          <span class="h">Vazio = rede aberta. Fica só neste aparelho.</span></div>
+        <div class="fld"><button class="btn" id="n-buscar" type="button">Buscar nós</button></div>
+        <div class="fld"><button class="btn ghost" id="n-todos" type="button" disabled>Selecionar todos</button></div>
+        <div class="fld"><button class="btn" id="n-ler" type="button" disabled>Adicionar e ler selecionados</button></div>
+        <div class="fld"><button class="btn danger" id="n-cancelar" type="button" hidden>Cancelar</button></div>
+      </div>
+      <p class="fld h" id="n-msg" role="status" style="margin-top:10px">Toque em “Buscar nós”.</p>
+      <div class="tw" style="margin-top:10px" id="n-lista"></div>
+      <p class="fld h" style="margin-top:10px">O Android conecta a uma rede por vez: os nós são lidos em fila, e o sistema pode pedir
+      que você confirme cada conexão. Cada nó só aparece enquanto estiver acordado — veja o protocolo no repositório.</p>
+    </div>
   </div>
 
   <div class="sec">
@@ -537,14 +562,20 @@ function ultimo(id){const s=SERIES[id];return s?s[s.length-1]:null;}
 function avaliar(no){
   const u=ultimo(no.id);
   if(!u) return {st:"idle", txt:"Aguardando primeira leitura", eventos:[]};
+  return avaliarU(u);
+}
+/* aceita campos nulos: leitura real pode vir sem algum sensor */
+function avaliarU(u){
   const ev=[];
-  if(u.grad>3) ev.push({sev:"crit", nome:"Gradiente vertical", det:`Topo ${u.grad.toFixed(1)} °C acima do ninho — limiar +3,0`});
-  if(u.tc1<32||u.tc1>36) ev.push({sev:"crit", nome:"Cria fora de faixa", det:`TC1 em ${u.tc1.toFixed(1)} °C — faixa 32 a 36`});
-  const mel=Math.max(u.tc2,u.tc3);
+  if(u.grad!=null && u.grad>3) ev.push({sev:"crit", nome:"Gradiente vertical", det:`Topo ${u.grad.toFixed(1)} °C acima do ninho — limiar +3,0`});
+  if(u.tc1!=null && (u.tc1<32||u.tc1>36)) ev.push({sev:"crit", nome:"Cria fora de faixa", det:`TC1 em ${u.tc1.toFixed(1)} °C — faixa 32 a 36`});
+  const mel=Math.max(u.tc2==null?-Infinity:u.tc2, u.tc3==null?-Infinity:u.tc3);
   if(mel>42) ev.push({sev:"crit", nome:"Melgueira no alarme", det:`${FMT(mel)} °C — alarme do canal em 42 °C`});
   else if(mel>38) ev.push({sev:"warn", nome:"Melgueira em atenção", det:`${FMT(mel)} °C — atenção do canal em 38 °C`});
-  if(u.vbat<3200) ev.push({sev:"warn", nome:"Bateria crítica", det:`${u.vbat} mV — o nó dobrou o intervalo de leitura`});
-  else if(u.vbat<3500) ev.push({sev:"warn", nome:"Bateria baixa", det:`${u.vbat} mV — prevê manutenção`});
+  if(u.vbat!=null){
+    if(u.vbat<3200) ev.push({sev:"warn", nome:"Bateria crítica", det:`${u.vbat} mV — o nó dobrou o intervalo de leitura`});
+    else if(u.vbat<3500) ev.push({sev:"warn", nome:"Bateria baixa", det:`${u.vbat} mV — prevê manutenção`});
+  }
   const st = ev.some(e=>e.sev==="crit") ? "crit" : ev.length ? "warn" : "ok";
   return {st, txt: st==="ok"?"Operando":ev[0].nome, eventos:ev};
 }
@@ -832,8 +863,8 @@ $("#a-alt").addEventListener("input",boil); boil();
    PERSISTÊNCIA — colmeias, inspeções e aferições
    ==================================================================== */
 let loja=null, podeEscrever=true;
-let COLMEIAS=[], INSPECOES=[], AFERICOES=[];
-const COLS=["colmeias","inspecoes","afericoes"];
+let COLMEIAS=[], INSPECOES=[], AFERICOES=[], LEITURAS=[];
+const COLS=["colmeias","inspecoes","afericoes","leituras"];
 
 /*  Duas implementações da mesma interface. A página não sabe qual está rodando:
     - no artefato do claude.ai, o banco compartilhado da plataforma;
@@ -960,15 +991,125 @@ $("#f-afer").addEventListener("submit", async ev=>{
 (function hoje(){ const d=new Date().toISOString().slice(0,10);
   $("#i-data").value=d; $("#af-data").value=d; })();
 
+/* ---------------- nós reais (ESP32 lido pelo celular) ---------------- */
+const SEM={ int16:-32768, int32:-2147483648, u16:65535 };   // marcadores de "sem leitura" do pacote
+const lim=(v,sent)=>(v==null||v===sent)?null:v;
+/*  O nó responde JSON com os campos do pacote de telemetria (docs: android/PROTOCOLO-NOS.md). */
+function normalizar(d){
+  const tc=v=>{ v=lim(v,SEM.int16); return v==null?null:v/100; };
+  const o={ tc1:tc(d.tc1), tc2:tc(d.tc2), tc3:tc(d.tc3),
+    lux:lim(d.lux,SEM.u16), t_ext:lim(d.t_ext,SEM.int16), rh:d.rh==null||d.rh===255?null:d.rh,
+    peso:lim(d.peso,SEM.int32), vbat:d.vbat?d.vbat:null,
+    falhas:d.falhas??0, eventos:d.eventos??0, seq:d.seq??null, fw:d.fw??null };
+  o.grad=(o.tc1!=null&&o.tc3!=null)?o.tc3-o.tc1:null;
+  return o;
+}
+function ultimasLeituras(){
+  const m=new Map();
+  LEITURAS.forEach(l=>{ if(!m.has(l.no)||String(l.quando)>String(m.get(l.no).quando)) m.set(l.no,l); });
+  return [...m.values()].sort((a,b)=>String(a.no).localeCompare(String(b.no)));
+}
+function renderReais(){
+  const ls=ultimasLeituras(), box=$("#sec-reais");
+  box.hidden=!ls.length; if(!ls.length) return;
+  const f=(v,d=1)=>v==null?"—":FMT(v,d);
+  $("#nodes-reais").innerHTML=ls.map(l=>{
+    const a=avaliarU(l), cod=(COLMEIAS.find(c=>c.no===l.no)||{}).cod||l.no;
+    const q=new Date(l.quando), quando=isNaN(q)?"":q.toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+    const chip=(k,rot,cor)=>`<div class="tcchip"><span class="k"><i style="background:${cor}"></i>${rot}</span>
+      <span class="v">${f(l[k])}<small> °C</small></span></div>`;
+    return `<div class="node" style="cursor:default" data-state="${a.st}">
+      <div class="nh"><div style="flex:1"><h3>${esc(cod)}</h3><div class="loc">lido em ${esc(quando)}<br>
+        <span class="mono" style="font-size:11px">nó ${esc(l.no)}</span></div></div>${pill(a.st)}</div>
+      <div class="tcs">${chip("tc3","TC3 topo","var(--tc3)")}${chip("tc2","TC2 meio","var(--tc2)")}${chip("tc1","TC1 ninho","var(--tc1)")}</div>
+      <div class="foot"><span>gradiente <span class="grad"${l.grad!=null&&l.grad>3?' style="color:var(--crit)"':""}>${l.grad==null?"—":(l.grad>0?"+":"")+FMT(l.grad)+" °C"}</span></span>
+        <span>${l.vbat?FMT(l.vbat/1000,2)+" V":"—"}</span></div>
+      <div class="foot"><span>luz ${l.lux==null?"—":l.lux.toLocaleString("pt-BR")+" lx"}</span>
+        <span>ext. ${l.t_ext==null?"—":esc(l.t_ext)+" °C"} · ${l.rh==null?"—":esc(l.rh)+" %"}</span></div></div>`;
+  }).join("");
+}
+
+const APP = (window.ColmeiaApp && window.ColmeiaApp.buscarNos) ? window.ColmeiaApp : null;
+let nosAchados=[];                  // [{ssid,rssi}]
+const estadoNo={};                  // ssid -> {txt, cls}
+const marcados=new Set();
+let lendo=false;
+const ETAPAS={conectando:"Conectando… (confirme no aviso do Android, se aparecer)", lendo:"Lendo telemetria…"};
+function msgNos(t){ $("#n-msg").textContent=t; }
+function renderListaNos(){
+  const el=$("#n-lista"); if(!APP) return;
+  if(!nosAchados.length){ el.innerHTML=`<div class="empty"><b>Nenhum nó na lista</b>Os nós aparecem como BM-01, BM-02… quando estão acordados e ao alcance.</div>`; }
+  else el.innerHTML=`<table><thead><tr><th></th><th>Nó</th><th>Sinal</th><th>Situação</th></tr></thead><tbody>${
+    nosAchados.map(n=>{
+      const cad=COLMEIAS.some(c=>c.no===n.ssid), st=estadoNo[n.ssid];
+      return `<tr><td><input type="checkbox" data-no="${esc(n.ssid)}" aria-label="Selecionar ${esc(n.ssid)}"${marcados.has(n.ssid)?" checked":""}${lendo?" disabled":""}></td>
+        <td><b>${esc(n.ssid)}</b></td><td class="num">${esc(n.rssi)} dBm</td>
+        <td>${st?`<span style="${st.cls==="erro"?"color:var(--crit)":st.cls==="ok"?"color:var(--good)":""}">${esc(st.txt)}</span>`
+               :cad?'<span class="pill ok"><span class="dot"></span>Já cadastrado</span>':'<span class="pill idle"><span class="dot"></span>Novo</span>'}</td></tr>`;}).join("")}</tbody></table>`;
+  $$("#n-lista [data-no]").forEach(c=>c.addEventListener("change",()=>{
+    c.checked?marcados.add(c.dataset.no):marcados.delete(c.dataset.no); atualizarBotoesNos(); }));
+  atualizarBotoesNos();
+}
+function atualizarBotoesNos(){
+  $("#n-buscar").disabled=lendo; $("#n-todos").disabled=lendo||!nosAchados.length;
+  $("#n-ler").disabled=lendo||!marcados.size; $("#n-cancelar").hidden=!lendo;
+  $("#n-ler").textContent=marcados.size>1?`Adicionar e ler ${marcados.size} nós`:"Adicionar e ler selecionados";
+}
+async function registrarNo(ssid,d){
+  if(!COLMEIAS.some(c=>c.no===ssid)){
+    const hoje=new Date().toISOString().slice(0,10);
+    await salvar("colmeias",{cod:ssid.replace(/^BM-/i,"COL-"), apiario:"", no:ssid, alt:null, data:hoje, criado:new Date().toISOString()});
+  }
+  return salvar("leituras",{no:ssid, quando:new Date().toISOString(), ...normalizar(d), criado:new Date().toISOString()});
+}
+if(APP) window.ColmeiaNos={ async evento(e){
+  if(e.tipo==="busca"){
+    e.nos.forEach(n=>{ const i=nosAchados.findIndex(x=>x.ssid===n.ssid); if(i<0) nosAchados.push(n); else nosAchados[i]=n; });
+    nosAchados.sort((a,b)=>a.ssid.localeCompare(b.ssid)); renderListaNos();
+    msgNos(nosAchados.length?`${nosAchados.length} nó${nosAchados.length>1?"s":""} ao alcance. Marque os que quiser adicionar.`:"Procurando…");
+  }else if(e.tipo==="fimbusca"){
+    msgNos(nosAchados.length?`${nosAchados.length} nó${nosAchados.length>1?"s":""} encontrado${nosAchados.length>1?"s":""}.`
+      :"Nenhum nó encontrado. Confira se o ESP32 está acordado e perto, e se o Wi-Fi e a localização do celular estão ligados.");
+  }else if(e.tipo==="aviso"){ msgNos(e.msg);
+  }else if(e.tipo==="erro"){ lendo=false; msgNos(e.msg); renderListaNos();
+  }else if(e.tipo==="progresso"){ estadoNo[e.ssid]={txt:ETAPAS[e.etapa]||e.etapa,cls:""}; renderListaNos();
+  }else if(e.tipo==="resultado"){
+    if(e.ok){ const gravou=await registrarNo(e.ssid,e.dados);
+      estadoNo[e.ssid]=gravou?{txt:"Adicionado e lido",cls:"ok"}:{txt:"Leu, mas não conseguiu salvar",cls:"erro"}; marcados.delete(e.ssid); }
+    else estadoNo[e.ssid]={txt:e.erro||"Falhou",cls:"erro"};
+    renderListaNos();
+  }else if(e.tipo==="fim"){
+    lendo=false; const v=Object.values(estadoNo);
+    msgNos(`Concluído: ${v.filter(x=>x.cls==="ok").length} lido(s), ${v.filter(x=>x.cls==="erro").length} com falha.`); renderListaNos();
+  }
+}};
+function ligarNos(){
+  if(!APP) return;
+  $("#sec-nos").hidden=false;
+  try{ $("#n-senha").value=localStorage.getItem("bm.senhaNos")||""; }catch(e){}
+  $("#n-buscar").addEventListener("click",()=>{ msgNos("Procurando…"); APP.buscarNos("BM-"); });
+  $("#n-todos").addEventListener("click",()=>{ nosAchados.forEach(n=>marcados.add(n.ssid)); renderListaNos(); });
+  $("#n-ler").addEventListener("click",()=>{
+    const senha=$("#n-senha").value;
+    try{ localStorage.setItem("bm.senhaNos",senha); }catch(e){}
+    if(senha && senha.length<8){ msgNos("A senha do Wi-Fi precisa ter 8 caracteres ou mais (ou deixe vazia para rede aberta)."); return; }
+    [...marcados].forEach(s=>delete estadoNo[s]); lendo=true; renderListaNos();
+    msgNos(`Lendo ${marcados.size} nó${marcados.size>1?"s":""}, um de cada vez…`);
+    APP.lerNos(JSON.stringify([...marcados]),senha);
+  });
+  $("#n-cancelar").addEventListener("click",()=>{ APP.cancelarNos(); lendo=false; msgNos("Cancelado."); renderListaNos(); });
+  renderListaNos();
+}
+
 /* ---------------- exportar e importar ---------------- */
 function pacote(){
   return {formato:"colmeia-viva/v1", gerado:new Date().toISOString(),
-          colmeias:COLMEIAS, inspecoes:INSPECOES, afericoes:AFERICOES};
+          colmeias:COLMEIAS, inspecoes:INSPECOES, afericoes:AFERICOES, leituras:LEITURAS};
 }
 $("#btn-exportar").addEventListener("click",()=>{
   const txt=JSON.stringify(pacote(),null,2);
   $("#io-txt").value=txt; $("#io-box").hidden=false;
-  const n=COLMEIAS.length+INSPECOES.length+AFERICOES.length;
+  const n=COLMEIAS.length+INSPECOES.length+AFERICOES.length+LEITURAS.length;
   $("#io-msg").textContent=`${n} registro${n===1?"":"s"} no pacote. `+($("#io-baixar").hidden?"Copie o texto.":"Copie o texto ou baixe o arquivo.");
   const a=$("#io-baixar");
   if(a.hidden) return;                      // dentro do artefato o download é inerte
@@ -997,7 +1138,7 @@ $("#btn-importar").addEventListener("click",async()=>{
   let d; try{ d=JSON.parse($("#io-txt").value); }
   catch(e){ $("#io-msg").textContent="O texto não é um JSON válido."; return; }
   if(!d || d.formato!=="colmeia-viva/v1"){ $("#io-msg").textContent="Pacote de outro formato — esperado colmeia-viva/v1."; return; }
-  const atuais={colmeias:COLMEIAS, inspecoes:INSPECOES, afericoes:AFERICOES};
+  const atuais={colmeias:COLMEIAS, inspecoes:INSPECOES, afericoes:AFERICOES, leituras:LEITURAS};
   const chave=o=>{ const {id,...r}=o; return JSON.stringify(Object.keys(r).sort().map(k=>[k,r[k]])); };
   let n=0, ign=0;
   for(const c of COLS){
@@ -1034,6 +1175,7 @@ $("#btn-importar").addEventListener("click",async()=>{
     return;
   }
   aviso(loja.rotulo);
+  ligarNos();
   $("#io-aviso").textContent = loja.detalhe;
   $("#hint-cad").textContent = loja.detalhe;
   //  o visualizador de artefatos não concede download ao conteúdo da página;
@@ -1050,6 +1192,7 @@ $("#btn-importar").addEventListener("click",async()=>{
   liga("colmeias", v=>{COLMEIAS=v.sort((a,b)=>String(a.cod).localeCompare(String(b.cod)));}, ()=>{tabColmeias();selColmeias();tabInsp();tabAfer();});
   liga("inspecoes", v=>{INSPECOES=v.sort((a,b)=>String(b.data).localeCompare(String(a.data)));}, tabInsp);
   liga("afericoes", v=>{AFERICOES=v.sort((a,b)=>String(b.data).localeCompare(String(a.data)));}, tabAfer);
+  liga("leituras", v=>{LEITURAS=v.sort((a,b)=>String(b.quando).localeCompare(String(a.quando)));}, ()=>{renderReais();renderListaNos();});
 })();
 </script>
 
