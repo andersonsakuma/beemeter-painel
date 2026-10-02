@@ -1039,6 +1039,11 @@ $("#btn-importar").addEventListener("click",async()=>{
   //  o visualizador de artefatos não concede download ao conteúdo da página;
   //  no Pages ou em arquivo local, concede. Mostra o botão só onde ele funciona.
   $("#io-baixar").hidden = (loja.tipo === "claude");
+  //  no aplicativo Android o WebView não baixa arquivos: o backup sai pelo menu Compartilhar
+  if(window.ColmeiaApp){
+    const bx=$("#io-baixar"); bx.hidden=false; bx.textContent="Compartilhar"; bx.removeAttribute("download");
+    bx.addEventListener("click",ev=>{ ev.preventDefault(); ColmeiaApp.compartilhar($("#io-txt").value); });
+  }
   if(podeEscrever===false){ bloquear(); aviso("Acesso de leitura."); }
 
   const liga=(col,ord,fn)=>loja.observar(col, v=>{ ord(v.slice()); fn(); });
