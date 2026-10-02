@@ -6,7 +6,6 @@
 <meta name="description" content="Colmeia Viva — painel de monitoramento e gestão do apiário BeeMeter. IPÊ/FIS, Projeto Amazônia Bee.">
 <meta name="color-scheme" content="light dark">
 <style>html,body{margin:0}body{font-size:14px}img{max-width:100%}[hidden]{display:none!important}</style>
-<meta charset="utf-8">
 <title>Colmeia Viva</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -314,7 +313,7 @@ tr.res td{color:var(--muted)}
 <!-- ===================== GESTÃO ===================== -->
 <section id="pn-gestao" role="tabpanel" aria-labelledby="tb-gestao" hidden>
   <div class="sec">
-    <header><h2>Cadastro de colmeias</h2><span class="hint">Fica salvo e é compartilhado com quem abrir este sistema</span></header>
+    <header><h2>Cadastro de colmeias</h2><span class="hint" id="hint-cad">Registros salvos</span></header>
     <div class="card">
       <form class="form" id="f-colmeia">
         <div class="fld"><label for="c-cod">Código da colmeia</label><input id="c-cod" required maxlength="24" placeholder="COL-04"></div>
@@ -600,7 +599,7 @@ function linha(opts){
       s+=`<path d="M${X(dados.length-1)+4.5},${Y(o.v)} L${X(dados.length-1)+8},${o.y-3}" stroke="${o.se.cor}" stroke-width="1" fill="none" opacity=".6"/>`;
     s+=`<text x="${X(dados.length-1)+10}" y="${o.y+3.6}" font-family="var(--fm)" font-size="${W<520?12.5:10.5}" font-weight="600" fill="var(--ink)">${o.se.nome}</text>`;
   });
-  s+=`<g id="cross" opacity="0"><line y1="${PAD.t}" y2="${h-PAD.b}" stroke="var(--line-2)" stroke-width="1" stroke-dasharray="3 3"/></g>`;
+  s+=`<g class="cross" opacity="0"><line y1="${PAD.t}" y2="${h-PAD.b}" stroke="var(--line-2)" stroke-width="1" stroke-dasharray="3 3"/></g>`;
   s+=`<rect x="${PAD.l}" y="${PAD.t}" width="${W-PAD.l-PAD.r}" height="${h-PAD.t-PAD.b}" fill="transparent" class="hit"/>`;
   s+=`</svg>`;
   return {svg:s, X, Y, PAD, W, h, ys};
@@ -613,7 +612,7 @@ function montarGrafico(el, cfg){
   el.innerHTML = `<header><h3>${cfg.titulo}</h3><span class="u">${cfg.unidade}</span><span class="spacer"></span>${leg}</header>
     <div class="plot">${g.svg}<div class="tip" role="status"></div></div>`;
   const svg=el.querySelector("svg"), tip=el.querySelector(".tip"),
-        cross=el.querySelector("#cross")||svg.querySelector("g"), plot=el.querySelector(".plot");
+        cross=svg.querySelector(".cross"), plot=el.querySelector(".plot");
   const line=svg.querySelector("g line");
   function mover(ev){
     const b=svg.getBoundingClientRect();
@@ -865,40 +864,41 @@ function lojaClaude(db){
 
 function selColmeias(){
   const ops = COLMEIAS.length
-    ? COLMEIAS.map(c=>`<option value="${c.id}">${c.cod}</option>`).join("")
-    : NOS.map(n=>`<option value="${n.colmeia}">${n.colmeia}</option>`).join("");
+    ? COLMEIAS.map(c=>`<option value="${esc(c.cod)}">${esc(c.cod)}</option>`).join("")
+    : NOS.map(n=>`<option value="${esc(n.colmeia)}">${esc(n.colmeia)}</option>`).join("");
   ["#i-col","#af-col"].forEach(s=>{const e=$(s);const v=e.value;e.innerHTML=ops;if(v)e.value=v;});
 }
 function tabColmeias(){
   $("#tb-colmeias").innerHTML = COLMEIAS.length ? `<table>
     <thead><tr><th>Código</th><th>Apiário</th><th>Nó</th><th>Altitude</th><th>Instalação</th><th></th></tr></thead>
     <tbody>${COLMEIAS.map(c=>`<tr><td><b>${esc(c.cod)}</b></td><td>${esc(c.apiario||"—")}</td>
-      <td class="num">${esc(c.no||"—")}</td><td class="num">${c.alt?c.alt+" m":"—"}</td>
-      <td class="num">${c.data||"—"}</td>
-      <td style="text-align:right">${podeEscrever!==false?`<button class="btn sm danger" data-del-col="${c.id}">Excluir</button>`:""}</td></tr>`).join("")}</tbody></table>`
+      <td class="num">${esc(c.no||"—")}</td><td class="num">${c.alt?esc(c.alt)+" m":"—"}</td>
+      <td class="num">${esc(c.data)||"—"}</td>
+      <td style="text-align:right">${podeEscrever!==false?`<button class="btn sm danger" data-del-col="${esc(c.id)}">Excluir</button>`:""}</td></tr>`).join("")}</tbody></table>`
     : `<div class="empty"><b>Nenhuma colmeia cadastrada</b>As quatro do painel são do conjunto de demonstração. Cadastre as suas acima.</div>`;
   $$("[data-del-col]").forEach(b=>b.addEventListener("click",()=>apagar("colmeias",b.dataset.delCol)));
 }
 function tabInsp(){
   $("#tb-insp").innerHTML = INSPECOES.length ? `<table>
     <thead><tr><th>Data</th><th>Colmeia</th><th>Responsável</th><th>Rainha</th><th>Observações</th><th></th></tr></thead>
-    <tbody>${INSPECOES.map(i=>`<tr><td class="num">${i.data}</td><td><b>${esc(i.col)}</b></td>
+    <tbody>${INSPECOES.map(i=>`<tr><td class="num">${esc(i.data)}</td><td><b>${esc(nomeCol(i.col))}</b></td>
       <td>${esc(i.resp||"—")}</td><td>${esc(i.rainha||"—")}</td><td>${esc(i.obs||"—")}</td>
-      <td style="text-align:right">${podeEscrever!==false?`<button class="btn sm danger" data-del-insp="${i.id}">Excluir</button>`:""}</td></tr>`).join("")}</tbody></table>`
+      <td style="text-align:right">${podeEscrever!==false?`<button class="btn sm danger" data-del-insp="${esc(i.id)}">Excluir</button>`:""}</td></tr>`).join("")}</tbody></table>`
     : `<div class="empty"><b>Nenhuma inspeção registrada</b>A inspeção guarda o que o sensor não mede: rainha, quadros de cria, reservas, doença.</div>`;
   $$("[data-del-insp]").forEach(b=>b.addEventListener("click",()=>apagar("inspecoes",b.dataset.delInsp)));
 }
 function tabAfer(){
   $("#tb-afer").innerHTML = AFERICOES.length ? `<table>
     <thead><tr><th>Data</th><th>Colmeia</th><th>Altitude</th><th>Ebulição</th><th>TC1</th><th>TC2</th><th>TC3</th><th></th></tr></thead>
-    <tbody>${AFERICOES.map(a=>`<tr><td class="num">${a.data}</td><td><b>${esc(a.col)}</b></td>
-      <td class="num">${a.alt} m</td><td class="num">${FMT(100-0.0034*a.alt)} °C</td>
-      <td class="num">${a.t1!=null?FMT(a.t1,2):"—"}</td><td class="num">${a.t2!=null?FMT(a.t2,2):"—"}</td>
-      <td class="num">${a.t3!=null?FMT(a.t3,2):"—"}</td>
-      <td style="text-align:right">${podeEscrever!==false?`<button class="btn sm danger" data-del-afer="${a.id}">Excluir</button>`:""}</td></tr>`).join("")}</tbody></table>`
+    <tbody>${AFERICOES.map(a=>`<tr><td class="num">${esc(a.data)}</td><td><b>${esc(nomeCol(a.col))}</b></td>
+      <td class="num">${esc(a.alt)} m</td><td class="num">${FMT(100-0.0034*(+a.alt||0))} °C</td>
+      <td class="num">${a.t1!=null&&isFinite(a.t1)?FMT(+a.t1,2):"—"}</td><td class="num">${a.t2!=null&&isFinite(a.t2)?FMT(+a.t2,2):"—"}</td>
+      <td class="num">${a.t3!=null&&isFinite(a.t3)?FMT(+a.t3,2):"—"}</td>
+      <td style="text-align:right">${podeEscrever!==false?`<button class="btn sm danger" data-del-afer="${esc(a.id)}">Excluir</button>`:""}</td></tr>`).join("")}</tbody></table>`
     : `<div class="empty"><b>Nenhuma aferição registrada</b>Sem aferição, o gradiente carrega o offset de cada canal — e o limiar de alarme é de apenas 3 °C.</div>`;
   $$("[data-del-afer]").forEach(b=>b.addEventListener("click",()=>apagar("afericoes",b.dataset.delAfer)));
 }
+function nomeCol(v){ const c=COLMEIAS.find(x=>x.id===v); return c?c.cod:v; }
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 async function apagar(col,id){
@@ -986,10 +986,16 @@ $("#btn-importar").addEventListener("click",async()=>{
   let d; try{ d=JSON.parse($("#io-txt").value); }
   catch(e){ $("#io-msg").textContent="O texto não é um JSON válido."; return; }
   if(!d || d.formato!=="colmeia-viva/v1"){ $("#io-msg").textContent="Pacote de outro formato — esperado colmeia-viva/v1."; return; }
-  let n=0;
-  for(const c of COLS){ const arr=Array.isArray(d[c])?d[c]:[]; if(arr.length){ await loja.incluirVarios(c,arr); n+=arr.length; } }
-  $("#io-msg").textContent=`${n} registro${n===1?"":"s"} importado${n===1?"":"s"}. Nada foi apagado — a importação acrescenta.`;
-  if(loja.tipo==="navegador"){ COLS.forEach(c=>{}); }
+  const atuais={colmeias:COLMEIAS, inspecoes:INSPECOES, afericoes:AFERICOES};
+  const chave=o=>{ const {id,...r}=o; return JSON.stringify(Object.keys(r).sort().map(k=>[k,r[k]])); };
+  let n=0, ign=0;
+  for(const c of COLS){
+    const vistos=new Set(atuais[c].map(chave));
+    const arr=(Array.isArray(d[c])?d[c]:[]).filter(o=>o&&typeof o==="object"&&!Array.isArray(o)).filter(o=>{
+      const k=chave(o); if(vistos.has(k)){ ign++; return false; } vistos.add(k); return true; });
+    if(arr.length){ await loja.incluirVarios(c,arr); n+=arr.length; }
+  }
+  $("#io-msg").textContent=`${n} registro${n===1?"":"s"} importado${n===1?"":"s"}`+(ign?`, ${ign} ${ign===1?"já existia e foi ignorado":"já existiam e foram ignorados"}`:"")+`. Nada foi apagado — a importação acrescenta.`;
 });
 
 /* ---------------- ligar o armazenamento ---------------- */
@@ -1013,17 +1019,19 @@ $("#btn-importar").addEventListener("click",async()=>{
   if(!loja){
     aviso("Este navegador bloqueia o armazenamento local — o painel funciona, o cadastro não salva.");
     bloquear(); $("#io-aviso").textContent="Sem armazenamento: exportação e importação indisponíveis.";
+    $("#hint-cad").textContent="Sem armazenamento: os registros não são salvos.";
     return;
   }
   aviso(loja.rotulo);
   $("#io-aviso").textContent = loja.detalhe;
+  $("#hint-cad").textContent = loja.detalhe;
   //  o visualizador de artefatos não concede download ao conteúdo da página;
   //  no Pages ou em arquivo local, concede. Mostra o botão só onde ele funciona.
   $("#io-baixar").hidden = (loja.tipo === "claude");
   if(podeEscrever===false){ bloquear(); aviso("Acesso de leitura."); }
 
   const liga=(col,ord,fn)=>loja.observar(col, v=>{ ord(v.slice()); fn(); });
-  liga("colmeias", v=>{COLMEIAS=v.sort((a,b)=>String(a.cod).localeCompare(String(b.cod)));}, ()=>{tabColmeias();selColmeias();});
+  liga("colmeias", v=>{COLMEIAS=v.sort((a,b)=>String(a.cod).localeCompare(String(b.cod)));}, ()=>{tabColmeias();selColmeias();tabInsp();tabAfer();});
   liga("inspecoes", v=>{INSPECOES=v.sort((a,b)=>String(b.data).localeCompare(String(a.data)));}, tabInsp);
   liga("afericoes", v=>{AFERICOES=v.sort((a,b)=>String(b.data).localeCompare(String(a.data)));}, tabAfer);
 })();
