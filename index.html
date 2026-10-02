@@ -7,9 +7,6 @@
 <meta name="color-scheme" content="light dark">
 <style>html,body{margin:0}body{font-size:14px}img{max-width:100%}[hidden]{display:none!important}</style>
 <title>Colmeia Viva</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bitter:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
 :root{
   color-scheme: light;
@@ -24,9 +21,9 @@
   --lux:#8A5406; --bat:#2B654A;
   --grid:rgba(21,35,28,.09);
   --shadow:0 1px 2px rgba(21,35,28,.05),0 10px 26px -14px rgba(21,35,28,.22);
-  --fd:"Bitter",Georgia,serif;
-  --fb:"Figtree","Segoe UI",system-ui,sans-serif;
-  --fm:"IBM Plex Mono",ui-monospace,monospace;
+  --fd:Georgia,"Times New Roman",serif;
+  --fb:system-ui,"Segoe UI",Roboto,sans-serif;
+  --fm:ui-monospace,"Cascadia Mono",Consolas,Menlo,monospace;
   --r:10px;
 }
 @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
@@ -509,7 +506,7 @@ function serie(no){
   if(no.perfil==="novo") return null;
   const r=rng(no.seed), out=[];
   let n1=0,n2=0,n3=0;
-  const AGORA=16;                              // a janela termina às 16 h locais
+  const _d=new Date(), AGORA=_d.getHours()+_d.getMinutes()/60;  // a janela termina na hora local atual
   for(let i=0;i<N;i++){
     const h=(i*STEP)/60-24;                    // -24 h .. 0 (agora)
     const rel=AGORA+h, cl=((rel%24)+24)%24;    // hora do relógio
@@ -795,13 +792,27 @@ function renderRef(){
 function abrirAba(nome){
   ["painel","colmeia","gestao","afericao","ref"].forEach(k=>{
     const t=$("#tb-"+k), p=$("#pn-"+k);
-    const on=k===nome; t.setAttribute("aria-selected",String(on)); p.hidden=!on;
+    const on=k===nome; t.setAttribute("aria-selected",String(on)); t.tabIndex=on?0:-1; p.hidden=!on;
   });
   if(nome==="colmeia"){renderPicker();renderDetalhe();}
   try{localStorage.setItem("bm.aba",nome);}catch(e){}
   window.scrollTo({top:0,behavior:"smooth"});
 }
-["painel","colmeia","gestao","afericao","ref"].forEach(k=>$("#tb-"+k).addEventListener("click",()=>abrirAba(k)));
+const ABAS=["painel","colmeia","gestao","afericao","ref"];
+ABAS.forEach(k=>{
+  const t=$("#tb-"+k);
+  t.tabIndex=t.getAttribute("aria-selected")==="true"?0:-1;
+  t.addEventListener("click",()=>abrirAba(k));
+  t.addEventListener("keydown",ev=>{
+    const i=ABAS.indexOf(k); let j=null;
+    if(ev.key==="ArrowRight") j=(i+1)%ABAS.length;
+    else if(ev.key==="ArrowLeft") j=(i-1+ABAS.length)%ABAS.length;
+    else if(ev.key==="Home") j=0;
+    else if(ev.key==="End") j=ABAS.length-1;
+    if(j===null) return;
+    ev.preventDefault(); abrirAba(ABAS[j]); $("#tb-"+ABAS[j]).focus();
+  });
+});
 
 /* ---------------- relógio ---------------- */
 function tick(){
